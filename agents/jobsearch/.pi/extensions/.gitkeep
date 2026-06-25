@@ -1,0 +1,2 @@
+# Agent-specific extensions go here
+# Pi auto-discovers .ts files in this directory

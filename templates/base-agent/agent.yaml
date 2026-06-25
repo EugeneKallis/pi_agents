@@ -1,0 +1,10 @@
+# Base agent template — copy this to create a new agent
+id: my-agent
+name: "My Agent"
+model: deepseek-v4-flash
+systemPromptFile: ./SYSTEM.md
+permissions:
+  canRunShell: false
+  canEditFiles: false
+  allowedPaths: []
+  blockedTools: []

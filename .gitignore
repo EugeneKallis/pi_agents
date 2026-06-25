@@ -1,0 +1,148 @@
+# ─── macOS ──────────────────────────────────────────────────────────────────
+.DS_Store
+*.swp
+*.swo
+*~
+
+# ─── Dependencies ───────────────────────────────────────────────────────────
+node_modules/
+**/.pi/npm/
+
+# ─── Python ─────────────────────────────────────────────────────────────────
+# Bytecode / compiled artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Test / coverage / type-checker caches
+.pytest_cache/
+.coverage
+.coverage.*
+.cache
+coverage.xml
+*.cover
+htmlcov/
+.tox/
+.nox/
+.mypy_cache/
+.ruff_cache/
+.pyright_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# Jupyter
+.ipynb_checkpoints/
+profile_default/
+ipython_config.py
+
+# Logs and local databases
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Tooling state
+.idea/
+.vscode/
+.spyderproject
+.spyproject
+.rope_project
+
+# Poetry / PDM state (lockfiles like poetry.lock / uv.lock are NOT ignored —
+# track them for reproducible builds; ignore only the per-machine config)
+.pdm.toml
+.pdm-python
+
+# Celery / scrapy / sphinx
+celerybeat-schedule
+celerybeat.pid
+*.scrapy
+docs/_build/
+
+# ─── Session data (conversation history) ────────────────────────────────────
+**/.pi/sessions/
+
+# ─── Auth & security (symlinked API keys, trust files) ──────────────────────
+**/auth.json
+**/.pi/auth.json
+**/trust.json
+**/.pi/trust.json
+
+# ─── Per-agent environment files ────────────────────────────────────────────
+# Each agent's just command loads agents/<name>/.env (if it exists) before
+# launching pi. Track the .example files for reference, but never commit the
+# real env values.
+agents/*/.env
+agents/*/.env.local
+!agents/*/.env.example
+/.env
+!/.env.example
+
+# ─── Local binaries (per-agent tooling) ─────────────────────────────────────
+**/bin/
+**/.pi/bin/
+
+# ─── Personal files (resumes contain PII) ───────────────────────────────────
+# Real resumes live alongside each agent under references/. Track only the
+# .example templates — never the real .md/.pdf (PII + per-user state).
+agents/*/references/seen-jobs.json
+agents/*/references/resume.md
+agents/*/references/resume.*
+agents/*/references/*.pdf
+!agents/*/references/*.example.*
+
+# ─── Agent runtime files ────────────────────────────────────────────────────
+# Per-agent settings + session history. settings.json can live directly under
+# agents/<name>/ or under agents/<name>/.pi/ — both are per-machine state.
+agents/*/settings.json
+agents/*/.pi/settings.json
+**/.pi/settings.json
+agents/*/.pi/sessions/
+**/.pi/locks.json
+**/.pi/locks.*.json
+**/.pi/tmp/
+
+# ─── Top-level .pi install state (per-machine, not source) ──────────────────
+/.pi/settings.json
+
+# ─── Generated search results ────────────────────────────────────────────────
+/search-results/
+
+# ─── Background agent logs (created by `just service-install` / launchd) ────
+/logs/
+
+tmp/
+
+# ─── Telegram runtime (contains bot token + allowed user id) ────────────────
+# Lives at agents/<name>/.pi/telegram.json after the first launch.
+**/.pi/telegram.json
+**/.pi/telegram.*.json
+/telegram.json

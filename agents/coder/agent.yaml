@@ -1,0 +1,10 @@
+id: coder
+name: "Coder — Senior Developer"
+model: deepseek-v4-flash
+systemPromptFile: ./SYSTEM.md
+permissions:
+  canRunShell: true
+  canEditFiles: true
+  allowedPaths:
+    - /Users/ponzi/dev/projects
+  blockedTools: []

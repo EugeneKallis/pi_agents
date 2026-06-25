@@ -1,0 +1,26 @@
+{
+  "name": "pi-agents",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-agent orchestrator for Pi — run long-running agents with their own Telegram bots",
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/orchestrator.ts",
+    "start:alpha": "PI_CODING_AGENT_DIR=$(pwd)/agents/agent-alpha/.pi pi --rpc",
+    "start:beta": "PI_CODING_AGENT_DIR=$(pwd)/agents/agent-beta/.pi pi --rpc",
+    "setup": "bun run src/setup.ts",
+    "status": "pm2 status",
+    "logs": "pm2 logs",
+    "logs:alpha": "pm2 logs agent-alpha",
+    "logs:beta": "pm2 logs agent-beta",
+    "logs:gamma": "pm2 logs agent-gamma"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "latest",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}

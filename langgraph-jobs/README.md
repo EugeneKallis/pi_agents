@@ -95,6 +95,7 @@ In **quiet mode** (`--quiet`), only the JSON payload is printed to stdout — id
 
 ```json
 {
+  "job_count": 8,
   "telegram": "Top KDB+ Job Matches\n\n**Quantitative/Software Engineer (KDB+/Q)**...",
   "discord": {
     "content": "Top KDB+ developer job matches from the latest search.",
@@ -129,9 +130,10 @@ In **quiet mode** (`--quiet`), only the JSON payload is printed to stdout — id
 ### Code node snippet
 
 ```javascript
-// ── Parse stdout from SSH node and create items for Telegram + Discord ──
+// ── Parse SSH stdout into Telegram + Discord items ──
 // Input:  [{ code, signal, stdout, stderr }]
-// Output: items with json.telegram (for Telegram node) and json.* (for Discord embeds)
+// Output: items keyed by action for downstream IF/Switch routing.
+//         Returns [] (empty) when job_count === 0 so nothing sends.
 
 const items = [];
 
@@ -145,6 +147,9 @@ for (const row of $input.all()) {
   } catch (e) {
     throw new Error(`Failed to parse stdout: ${e.message}`);
   }
+
+  // Skip entirely when no jobs found — prevents empty Telegram/Discord sends
+  if (payload.job_count === 0) continue;
 
   // 1. Telegram message as a separate item (nice for Telegram node)
   if (payload.telegram) {
@@ -163,7 +168,6 @@ for (const row of $input.all()) {
         action: 'send_discord',
         content: payload.discord.content,
         embeds: payload.discord.embeds || [],
-        // also expose each field individually for Discord node expressions
         embed_count: (payload.discord.embeds || []).length,
       }
     });

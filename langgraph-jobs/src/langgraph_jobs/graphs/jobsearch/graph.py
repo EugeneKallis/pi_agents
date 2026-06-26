@@ -211,9 +211,10 @@ def _node_write_report(state: JobSearchState) -> dict:
 RANKED JOB LIST:
 {ranked}
 
-TASK: Produce a JSON block (inside ```json fences) with EXACTLY two top-level keys:
+TASK: Produce a JSON block (inside ```json fences) with EXACTLY three top-level keys:
 
 {{
+  "job_count": 8,
   "telegram": "<FULL Telegram message text>",
   "discord": {{
     "content": "<short intro line, ≤2000 chars>",
@@ -230,11 +231,12 @@ TASK: Produce a JSON block (inside ```json fences) with EXACTLY two top-level ke
 }}
 
 RULES:
-- Telegram: plain UTF-8 text with basic markdown (bold with **, bullet points with -). Top 3-5 jobs. Include role, company, location, salary, location type. Keep it tight and scannable. ≤4096 characters.
-- Discord embeds: one per ranked job, up to 10 embeds. Each embed MUST have all 5 fields (title, description, salary, location_type, url).
+- job_count: integer — the total number of ranked jobs (0 if nothing found). n8n uses this to decide whether to send messages.
+- Telegram: plain UTF-8 text with basic markdown (bold with **, bullet points with -). Top 3-5 jobs. Include role, company, location, salary, location type. Keep it tight and scannable. ≤4096 characters. If job_count is 0, set telegram to an empty string.
+- Discord embeds: one per ranked job, up to 10 embeds. Each embed MUST have all 5 fields (title, description, salary, location_type, url). If job_count is 0, set embeds to [] and content to "No matching jobs found.".
 - location_type: infer from the listing — use exactly one of "Remote", "Hybrid", "In-office", "Unknown".
 - url: use the EXACT job listing URL from the ranked table — do NOT invent or modify it.
-- Do NOT include summary, html_file, or any other top-level keys. ONLY telegram and discord.
+- Do NOT include summary, html_file, or any other top-level keys. ONLY job_count, telegram and discord.
 
 After the JSON block, produce a brief markdown summary with the ranked table for the output file.
 """
@@ -310,8 +312,9 @@ def run_jobsearch(
         except Exception:
             return json_block  # return raw block if parse fails
 
-        # Only keep the two keys n8n cares about
+        # Only keep the three keys n8n cares about
         clean: dict = {}
+        clean["job_count"] = int(parsed.get("job_count", 0))
         if "telegram" in parsed:
             clean["telegram"] = parsed["telegram"]
         if "discord" in parsed:

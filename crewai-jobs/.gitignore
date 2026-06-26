@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Env files (never commit secrets)
+.env
+.env.local
+
+# CrewAI runtime
+output/*.md
+!output/.gitkeep
+output/jobsearch/*.md
+!output/jobsearch/.gitkeep
+logs/
+memory/
+
+# Editor
+.vscode/
+.idea/
+.DS_Store
+*.egg-info/

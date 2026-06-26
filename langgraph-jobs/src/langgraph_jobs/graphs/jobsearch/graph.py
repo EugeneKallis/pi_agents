@@ -181,13 +181,14 @@ TASK: Analyze each listing against the resume. For each job, write a 2-3 line fi
 
 Output format — a markdown table followed by per-job details:
 
-| # | Title | Company | Location | Salary | Fit | Link |
-|---|-------|---------|----------|--------|-----|------|
+| # | Title | Company | Location | Salary | Location Type | Fit | Link |
+|---|-------|---------|----------|--------|---------------|-----|------|
 
 Below each row, a **Details** section with:
 - **Why fit:** 2-3 lines referencing specific resume skills
 - **Description:** 1-2 sentence summary
-- **Salary:** Listed or "Not listed"
+- **Salary:** Listed amount or "Not listed"
+- **Location type:** One of: Remote, Hybrid, In-office, Unknown (infer from snippet / location description)
 - **Apply:** Clickable URL
 
 End with: total found, total verified active, total ranked.
@@ -205,38 +206,37 @@ def _node_write_report(state: JobSearchState) -> dict:
     ranked = state.get("ranked_markdown", "")
     output = state.get("output", f"output/jobsearch/report-{{role}}-{{date}}.md")
 
-    prompt = f"""Read the ranked job list below and produce the final deliverables.
+    prompt = f"""Read the ranked job list below and produce the ONLY deliverable that matters — a JSON payload for n8n.
 
 RANKED JOB LIST:
 {ranked}
 
-TASK:
-1. Write a JSON block (as ```json) with n8n-compatible messages:
+TASK: Produce a JSON block (inside ```json fences) with EXACTLY two top-level keys:
 
 {{
-  "telegram": {{
-    "text": "<MarkdownV2-formatted, ≤4096 chars. Escape: * _ [ ] ( ) ~ ` > # + - = | {{ }} . ! with \\\\>",
-    "parse_mode": "MarkdownV2"
-  }},
+  "telegram": "<FULL Telegram message text>",
   "discord": {{
-    "content": "<plain text, ≤2000 chars>",
+    "content": "<short intro line, ≤2000 chars>",
     "embeds": [
-      {{"title": "Job Title", "description": "Company | Location | Salary | Fit summary", "url": "https://apply.link"}}
+      {{
+        "title": "Job Title",
+        "description": "2-3 sentence summary of the role and why it fits",
+        "salary": "$100k-$150k" or "Not listed",
+        "location_type": "Remote" | "Hybrid" | "In-office" | "Unknown",
+        "url": "https://exact.job.listing.url"
+      }}
     ]
-  }},
-  "summary": "<one-line summary: found N results for ROLE>",
-  "html_file": "output/jobsearch/report-{role}-{date_str}.html"
+  }}
 }}
 
-Telegram rules: MarkdownV2, ≤4096 chars, escape special chars. Top 3-5 jobs only.
-Discord rules: ≤2000 chars content, ≤10 embeds.
+RULES:
+- Telegram: plain UTF-8 text with basic markdown (bold with **, bullet points with -). Top 3-5 jobs. Include role, company, location, salary, location type. Keep it tight and scannable. ≤4096 characters.
+- Discord embeds: one per ranked job, up to 10 embeds. Each embed MUST have all 5 fields (title, description, salary, location_type, url).
+- location_type: infer from the listing — use exactly one of "Remote", "Hybrid", "In-office", "Unknown".
+- url: use the EXACT job listing URL from the ranked table — do NOT invent or modify it.
+- Do NOT include summary, html_file, or any other top-level keys. ONLY telegram and discord.
 
-2. THEN produce a polished markdown report with:
-   - Header: role, date, stats
-   - The ranked table + per-job details
-   - "Key Takeaways" section
-
-Save both the markdown report and the JSON block.
+After the JSON block, produce a brief markdown summary with the ranked table for the output file.
 """
 
     response = llm.invoke(prompt)
@@ -307,9 +307,22 @@ def run_jobsearch(
         json_block = _extract_json_block(raw)
         try:
             parsed = json.loads(json_block)
-            return json.dumps(parsed, indent=2, ensure_ascii=False)
         except Exception:
-            return json_block
+            return json_block  # return raw block if parse fails
+
+        # Only keep the two keys n8n cares about
+        clean: dict = {}
+        if "telegram" in parsed:
+            clean["telegram"] = parsed["telegram"]
+        if "discord" in parsed:
+            clean["discord"] = parsed["discord"]
+
+        # Ensure discord.embeds exist
+        if isinstance(clean.get("discord"), dict):
+            clean["discord"].setdefault("content", "")
+            clean["discord"].setdefault("embeds", [])
+
+        return json.dumps(clean, indent=2, ensure_ascii=False)
 
     return result.get("final_report", "")
 

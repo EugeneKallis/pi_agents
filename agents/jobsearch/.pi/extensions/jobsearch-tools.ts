@@ -377,8 +377,12 @@ export default function (pi: ExtensionAPI) {
 		}),
 
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-			const filePath =
-				"/Users/ponzi/dev/pi_agents/agents/jobsearch/references/seen-jobs.json";
+			// Use a path that works on any host — resolve relative to the agent's references dir
+			// (this file is loaded from agents/jobsearch/.pi/extensions/, so we walk up to references/)
+			const path = await import("node:path");
+			const url = await import("node:url");
+			const here = path.dirname(url.fileURLToPath(import.meta.url));
+			const filePath = path.resolve(here, "..", "..", "references", "seen-jobs.json");
 
 			if (params.action === "read") {
 				try {

@@ -1,0 +1,15 @@
+{
+  "defaultProvider": "opencode-go",
+  "defaultModel": "deepseek-v4-flash",
+  "packages": [
+    "npm:pi-web-access",
+    "npm:pi-playwright"
+  ],
+  "extensions": [
+    "../../../extensions/audit-logger.ts",
+    "../../../extensions/file-guard.ts",
+    "extensions/jobsearch-tools.ts"
+  ],
+  "theme": "dark",
+  "lastChangelogVersion": "0.79.10"
+}

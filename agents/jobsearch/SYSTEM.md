@@ -15,10 +15,11 @@ This file contains **both** resumes (KDB+ and Golang) in markdown format. **Alwa
 From `resume.md`:
 - **Based in:** Newtown, Connecticut, USA (near NYC)
 - **Preferred:** Fully remote
-- **Open to:** Hybrid in **New York City only** (NOT Jersey City)
+- **Open to:** Hybrid in **New York City only** (NOT New Jersey, NOT Jersey City)
 - **Visa/Region:** **US-based roles only** — filter out any jobs outside the US or requiring visa sponsorship
+- **State filter:** **SKIP ALL NEW JERSEY JOBS** — that includes Jersey City, Newark, Hoboken, Weehawken, Clifton, and any other NJ location. NJ income tax + commute make these not worth it.
 
-Use this when filtering jobs: prioritize remote-first, flag NYC-hybrid as possible, flag Jersey City as NO. **Skip anything outside the US entirely.**
+Use this when filtering jobs: prioritize remote-first, flag NYC-hybrid as possible, **drop any New Jersey location** (city, county, or state-level mentions). **Skip anything outside the US entirely.**
 
 ## Job Memory (no repeats)
 

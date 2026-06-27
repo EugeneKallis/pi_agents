@@ -59,6 +59,18 @@ Returns listings via Exa. If it fails, fall back to `web_search`.
 ### 3. `fetch_content` (for deep dives)
 After finding a promising URL, use `fetch_content` to read the job page for full description, requirements, and salary.
 
+### 4. `verify_job` (MANDATORY before including any listing)
+**Every job you include in the final results MUST pass `verify_job(url)` and return `ACTIVE`.**
+```
+verify_job(url="https://linkedin.com/jobs/view/...")
+```
+The tool fetches the URL and returns a structured verdict:
+- `✅ ACTIVE` — found signals like "Apply now", "Posted X days ago", "Now hiring" → safe to include
+- `❌ CLOSED` — found signals like "No longer accepting", "Position filled", "Expired", or HTTP 404/410 → **DO NOT include**
+- `⚠️ UNCERTAIN` — no definitive signals → include only with a note; prefer to drop and find a replacement
+
+**Verification is not optional.** If a listing fails verification, drop it and find another. Never include a CLOSED listing — the user will waste time clicking through to dead links.
+
 ## Output Results to File
 
 After presenting results in the chat, **also save them to a markdown file** in the repo's `/search-results/` directory.
@@ -100,7 +112,7 @@ This way the results open immediately in your browser.
 - ✅ Why it fits the user's resume (reference specific skills from resume.md)
 - ✅ Description snippet
 - ✅ Clickable apply link
-- ✅ **Still accepting applicants** — confirm by checking the job page with `fetch_content` or verifying via `web_search` that the posting is active
+- ✅ **Still accepting applicants** — confirmed via `verify_job(url)` returning `ACTIVE`. Never include a CLOSED or unverified listing.
 
 ```markdown
 ## 📋 Job Matches for [Role]
@@ -135,11 +147,12 @@ This way the results open immediately in your browser.
 2. **Read resume:** `references/resume.md` — extract skills and preferences
 3. **Search boards:** `web_search` with site-specific queries (**5+ boards** — LinkedIn, Indeed, ZipRecruiter, Glassdoor, Wellfound minimum)
 4. **Filter:** Remove any jobs whose URLs are already in the seen list
-5. **Verify still open:** For promising results, use `fetch_content` on the job page to check the posting is still accepting applicants — look for signs like "Apply now", "Posted X days ago" vs "This position has been filled", "No longer accepting applications"
-6. **Present:** Ranked table with all 6 fields in chat
-7. **Save to file:** Write the same results to `search-results/<role>-<date>.md`
-8. **Create HTML:** Convert results to a self-contained HTML file at `search-results/<role>-<date>.html` and open it with `open <file>`
-9. **Remember:** `track_jobs(action="add", urls=[...])` — record new job URLs so they never appear again
-10. **Ask:** *"Want me to explore any of these further or refine the search?"*
+5. **Verify still open (MANDATORY):** For each promising result, call `verify_job(url)`. **Drop any that return `CLOSED` or whose `apply link` is a search/aggregate page** (e.g. `linkedin.com/jobs/search`, `indeed.com/jobs?`). Only proceed with `ACTIVE` listings.
+6. **Deep dive (optional):** For ACTIVE listings, use `fetch_content` on the job page for full description, requirements, and salary details.
+7. **Present:** Ranked table with all 6 fields in chat
+8. **Save to file:** Write the same results to `search-results/<role>-<date>.md`
+9. **Create HTML:** Convert results to a self-contained HTML file at `search-results/<role>-<date>.html` and open it with `open <file>`
+10. **Remember:** `track_jobs(action="add", urls=[...])` — record new job URLs so they never appear again
+11. **Ask:** *"Want me to explore any of these further or refine the search?"*
 
 > 🔴 **REMINDER:** Steps 7+8 (save .md, create .html, run `open`) are MANDATORY. Never skip them. The user expects the browser to open.

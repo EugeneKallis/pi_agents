@@ -216,6 +216,150 @@ export default function (pi: ExtensionAPI) {
 	};
 }
 
+	// Register a tool that verifies a job posting is still active and accepting applicants.
+	// Fetches the URL, looks for active/closed signals in the page text,
+	// returns a structured verdict so the agent can confidently include or exclude the listing.
+	pi.registerTool({
+		name: "verify_job",
+		label: "Verify Job Status",
+		description:
+			"Verify a job posting URL is still active and accepting applicants. " +
+			"Fetches the page and analyzes content for active signals (Apply now, Posted X days ago) " +
+			"and closed signals (No longer accepting, Position filled, Expired, 404). " +
+			"Returns a structured status: ACTIVE, CLOSED, or UNCERTAIN with the signals found.",
+		parameters: Type.Object({
+			url: Type.String({ description: "URL of the job posting to verify" }),
+		}),
+
+		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+			const url = params.url;
+
+			// Phrases that indicate the job is still active
+			const ACTIVE_SIGNALS = [
+				/apply\s+(?:now|today|here|on\s+this)/i,
+				/(?:easy|quick)\s+apply/i,
+				/apply\s+for\s+this\s+(?:job|position|role)/i,
+				/submit\s+(?:your\s+)?(?:application|resume|cv)/i,
+				/posted\s+(?:\d+\s+(?:day|hour|week|month)s?\s+ago|just\s+now|recently)/i,
+				/(?:actively\s+)?hiring/i,
+				/(?:job|position)\s+(?:is\s+)?open/i,
+				/now\s+hiring/i,
+				/join\s+(?:us|our\s+team)/i,
+			];
+
+			// Phrases that indicate the job is no longer active
+			const CLOSED_SIGNALS = [
+				/no\s+longer\s+(?:accepting|accepting\s+applications|taking\s+applications)/i,
+				/(?:position|job|role)\s+(?:has\s+been\s+)?(?:filled|closed)/i,
+				/(?:applications?|posting)\s+(?:are\s+)?closed/i,
+				/(?:this\s+)?(?:job|position|posting)\s+(?:has\s+)?expired/i,
+				/(?:not|no\s+longer)\s+available/i,
+				/(?:job|position)\s+has\s+been\s+removed/i,
+			];
+
+			// HTTP status signals (LinkedIn/Indeed return specific patterns when listings are gone)
+			const HTTP_CLOSED = [
+				/this\s+job\s+(?:is\s+)?no\s+longer\s+available/i,
+				/this\s+page\s+doesn[’'`]t\s+exist/i,
+				/page\s+not\s+found/i,
+				/job\s+not\s+found/i,
+				/404[\s-]*(?:not\s+found|error)?/i,
+			];
+
+			try {
+				const response = await fetch(url, {
+					headers: {
+						"User-Agent":
+							"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+					},
+					signal: AbortSignal.timeout(10_000),
+					redirect: "follow",
+				});
+
+				// HTTP error codes
+				if (response.status === 404 || response.status === 410) {
+					return {
+						content: [{
+							type: "text",
+							text: `❌ CLOSED (HTTP ${response.status}) — ${url}\nThe page returned a ${response.status} error. Job is definitely no longer available.`,
+						}],
+						details: { status: "CLOSED", httpCode: response.status, url, signals: [`http_${response.status}`] },
+					};
+				}
+				if (!response.ok) {
+					return {
+						content: [{
+							type: "text",
+							text: `⚠️ UNCERTAIN (HTTP ${response.status}) — ${url}\nUnexpected response code. Page may or may not have the listing.`,
+						}],
+						details: { status: "UNCERTAIN", httpCode: response.status, url, signals: [`http_${response.status}`] },
+					};
+				}
+
+				const text = await response.text();
+
+				// Strip HTML tags for plain-text analysis
+				const cleaned = text
+					.replace(/<script[\s\S]*?<\/script>/gi, " ")
+					.replace(/<style[\s\S]*?<\/style>/gi, " ")
+					.replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+					.replace(/<[^>]+>/g, " ")
+					.replace(/\s+/g, " ")
+					.trim();
+
+				// Collect matched signals
+				const activeMatches: string[] = [];
+				const closedMatches: string[] = [];
+
+				for (const pat of ACTIVE_SIGNALS) {
+					const m = cleaned.match(pat);
+					if (m) activeMatches.push(m[0].trim());
+				}
+				for (const pat of CLOSED_SIGNALS) {
+					const m = cleaned.match(pat);
+					if (m) closedMatches.push(m[0].trim());
+				}
+				for (const pat of HTTP_CLOSED) {
+					const m = cleaned.match(pat);
+					if (m) closedMatches.push(m[0].trim());
+				}
+
+				// Determine status
+				let status: "ACTIVE" | "CLOSED" | "UNCERTAIN" = "UNCERTAIN";
+				if (closedMatches.length > 0) {
+					status = "CLOSED";
+				} else if (activeMatches.length >= 1) {
+					status = "ACTIVE";
+				}
+
+				const summary =
+					status === "ACTIVE"
+						? `✅ ACTIVE — ${url}\nActive signals found: ${activeMatches.slice(0, 3).join(" | ")}`
+						: status === "CLOSED"
+						? `❌ CLOSED — ${url}\nClosed signals found: ${closedMatches.slice(0, 3).join(" | ")}\nDO NOT include this in results.`
+						: `⚠️ UNCERTAIN — ${url}\nNo definitive signals found. Page loaded but couldn't confirm if job is still accepting.`;
+
+				return {
+					content: [{ type: "text", text: summary }],
+					details: {
+						status,
+						url,
+						activeSignals: activeMatches,
+						closedSignals: closedMatches,
+					},
+				};
+			} catch (e: any) {
+				return {
+					content: [{
+						type: "text",
+						text: `⚠️ UNCERTAIN — ${url}\nError verifying: ${e.message}\nCould not confirm status.`,
+					}],
+					details: { status: "UNCERTAIN", error: e.message, url, signals: [] },
+				};
+			}
+		},
+	});
+
 	// Also register a tool to track seen jobs (prevents repeats across runs)
 	pi.registerTool({
 		name: "track_jobs",

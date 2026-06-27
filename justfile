@@ -45,7 +45,7 @@ jobsearch-go: (jobsearch-role "Golang")
 # Examples: just jobsearch-json KDB+, just jobsearch-json Python
 jobsearch-json role:
     @cd agents/jobsearch && { [ -f ".env" ] && { set -a; . ".env"; set +a; } || true; } && \
-    PI_CODING_AGENT_DIR=$$(pwd)/.pi pi -p \
+    PI_CODING_AGENT_DIR=./.pi pi -p \
       "Search for {{role}} developer jobs. Return ONLY a JSON object, no other text. The JSON must have exactly these keys: job_count (number), telegram (string with markdown), discord (object with content string and embeds array). discord.embeds items must have: title, description, salary, location_type (Remote or Hybrid or In-office or Unknown), url. Skip non-US jobs and Jersey City. Use search_jobs tool first, then web_search. Include exact URLs." \
       --no-session 2>/dev/null
 

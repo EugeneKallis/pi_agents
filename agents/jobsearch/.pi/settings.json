@@ -1,6 +1,6 @@
 {
   "defaultProvider": "opencode-go",
-  "defaultModel": "deepseek-v4-flash",
+  "defaultModel": "kimi-k2.6",
   "packages": [
     "npm:pi-web-access",
     "npm:pi-playwright"

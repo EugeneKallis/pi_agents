@@ -1,15 +1,17 @@
 {
   "defaultProvider": "opencode-go",
-  "defaultModel": "kimi-k2.6",
+  "defaultModel": "deepseek-v4-flash",
   "packages": [
     "npm:pi-web-access",
-    "npm:pi-playwright"
+    "npm:pi-playwright",
+    "npm:@llblab/pi-telegram"
   ],
   "extensions": [
     "../../../extensions/audit-logger.ts",
     "../../../extensions/file-guard.ts",
+    "extensions/auto-telegram-connect.ts",
     "extensions/jobsearch-tools.ts"
   ],
   "theme": "dark",
-  "lastChangelogVersion": "0.79.10"
+  "lastChangelogVersion": "0.80.2"
 }

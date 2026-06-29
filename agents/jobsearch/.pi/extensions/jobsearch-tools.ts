@@ -14,6 +14,47 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+const execFileAsync = promisify(execFile);
+
+// Path to the framework's installed playwright module. The extension's jiti
+// loader only resolves pi-* packages and typebox (see
+// @earendil-works/pi-coding-agent/dist/core/extensions/loader.js getAliases()),
+// so we can't `import { chromium } from "playwright"` directly from this file.
+// Instead we spawn a subprocess that uses an absolute path import — ESM ignores
+// NODE_PATH, so this is the only way to reach the framework's installed copy.
+const PLAYWRIGHT_ENTRY = join(homedir(), ".pi", "agent", "npm", "node_modules", "playwright", "index.mjs");
+
+// Inline script: launches a headless chromium, navigates to TARGET_URL,
+// strips HTML, and prints a JSON {httpStatus, text} line to stdout.
+// Runs in a fresh node process each call (~3-5s chromium startup), but keeps
+// this extension's loader simple and the browser is fully isolated per call.
+const BROWSER_SCRIPT = `
+import { chromium } from ${JSON.stringify(PLAYWRIGHT_ENTRY)};
+const url = process.env.TARGET_URL;
+const browser = await chromium.launch({ headless: true });
+const page = await browser.newPage();
+try {
+  const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
+  const httpStatus = response?.status() ?? 0;
+  const html = await page.content();
+  const text = html
+    .replace(/<script[\\s\\S]*?<\\/script>/gi, " ")
+    .replace(/<style[\\s\\S]*?<\\/style>/gi, " ")
+    .replace(/<noscript[\\s\\S]*?<\\/noscript>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\\s+/g, " ")
+    .trim();
+  process.stdout.write(JSON.stringify({ httpStatus, text }));
+} finally {
+  await page.close();
+  await browser.close();
+}
+`.trim();
 
 interface JobListing {
 	title: string;
@@ -23,6 +64,77 @@ interface JobListing {
 	description: string;
 	url: string;
 	source: string;
+}
+
+// ── Verify helpers ──────────────────────────────────────────────────────────
+//
+// Job boards fall into two categories:
+//   - JS-heavy boards (LinkedIn, Indeed, Glassdoor, Dice, ZipRecruiter,
+//     Wellfound, BuiltIn, Monster) render listings via JavaScript and block
+//     raw HTTP requests. The HTML you get from fetch() is just a shell —
+//     no "Apply now", no "Posted 3 days ago", nothing for the regex to match.
+//   - Everything else: a plain fetch + regex is fast and good enough.
+//
+// We use Playwright (via subprocess — see PI_NPM_PATH comment above) for the
+// JS-heavy boards so the rendered DOM reaches the regex. Each verify_job
+// call for a JS-heavy host spawns a fresh node + chromium (~3-5s startup),
+// but the browser is fully isolated so one bad page can't crash the run.
+
+// Hosts that need a real browser to render the listing.
+const JS_HEAVY_HOSTS =
+	/linkedin\.com|indeed\.com|glassdoor\.com|dice\.com|ziprecruiter\.com|wellfound\.com|builtin\.com|monster\.com/i;
+
+type FetchResult =
+	| { strategy: "browser" | "http"; text: string; httpStatus: number }
+	| { strategy: "error"; text: ""; httpStatus: 0; error: string };
+
+async function fetchWithBrowser(url: string): Promise<{ ok: true; text: string; httpStatus: number } | { ok: false; error: string }> {
+	try {
+		const { stdout } = await execFileAsync("node", ["--input-type=module", "-e", BROWSER_SCRIPT], {
+			env: { ...process.env, TARGET_URL: url },
+			timeout: 30_000,
+		});
+		const result = JSON.parse(stdout) as { httpStatus: number; text: string };
+		return { ok: true, text: result.text, httpStatus: result.httpStatus };
+	} catch (e: any) {
+		return { ok: false, error: e?.message ?? String(e) };
+	}
+}
+
+async function fetchPageText(url: string): Promise<FetchResult> {
+	if (JS_HEAVY_HOSTS.test(url)) {
+		const browser = await fetchWithBrowser(url);
+		if (browser.ok) {
+			return { strategy: "browser", text: browser.text, httpStatus: browser.httpStatus };
+		}
+		// Browser failed — fall back to HTTP rather than erroring out.
+		const http = await fetchHttp(url);
+		return http.ok
+			? { strategy: "http", text: http.text, httpStatus: http.httpStatus }
+			: { strategy: "error", text: "", httpStatus: 0, error: browser.error };
+	}
+	const http = await fetchHttp(url);
+	return http.ok
+		? { strategy: "http", text: http.text, httpStatus: http.httpStatus }
+		: { strategy: "error", text: "", httpStatus: 0, error: http.error ?? "fetch failed" };
+}
+
+async function fetchHttp(
+	url: string,
+): Promise<{ ok: true; text: string; httpStatus: number } | { ok: false; error: string }> {
+	try {
+		const response = await fetch(url, {
+			headers: {
+				"User-Agent":
+					"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+			},
+			signal: AbortSignal.timeout(10_000),
+			redirect: "follow",
+		});
+		return { ok: true, text: await response.text(), httpStatus: response.status };
+	} catch (e: any) {
+		return { ok: false, error: e?.message ?? String(e) };
+	}
 }
 
 export default function (pi: ExtensionAPI) {
@@ -224,7 +336,8 @@ export default function (pi: ExtensionAPI) {
 		label: "Verify Job Status",
 		description:
 			"Verify a job posting URL is still active and accepting applicants. " +
-			"Fetches the page and analyzes content for active signals (Apply now, Posted X days ago) " +
+			"Fetches the page (uses a headless browser for LinkedIn/Indeed/Glassdoor/Dice/ZipRecruiter/Wellfound/BuiltIn/Monster so JS-rendered listings are inspected, plain HTTP for everything else) " +
+			"and analyzes content for active signals (Apply now, Posted X days ago) " +
 			"and closed signals (No longer accepting, Position filled, Expired, 404). " +
 			"Returns a structured status: ACTIVE, CLOSED, or UNCERTAIN with the signals found.",
 		parameters: Type.Object({
@@ -266,97 +379,86 @@ export default function (pi: ExtensionAPI) {
 				/404[\s-]*(?:not\s+found|error)?/i,
 			];
 
-			try {
-				const response = await fetch(url, {
-					headers: {
-						"User-Agent":
-							"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-					},
-					signal: AbortSignal.timeout(10_000),
-					redirect: "follow",
-				});
+			// fetchPageText picks the right strategy automatically: Playwright
+			// for JS-heavy boards (LinkedIn, Indeed, Glassdoor, etc.) so the
+			// rendered DOM reaches the regex, plain HTTP for everything else.
+			const result = await fetchPageText(url);
 
-				// HTTP error codes
-				if (response.status === 404 || response.status === 410) {
-					return {
-						content: [{
-							type: "text",
-							text: `❌ CLOSED (HTTP ${response.status}) — ${url}\nThe page returned a ${response.status} error. Job is definitely no longer available.`,
-						}],
-						details: { status: "CLOSED", httpCode: response.status, url, signals: [`http_${response.status}`] },
-					};
-				}
-				if (!response.ok) {
-					return {
-						content: [{
-							type: "text",
-							text: `⚠️ UNCERTAIN (HTTP ${response.status}) — ${url}\nUnexpected response code. Page may or may not have the listing.`,
-						}],
-						details: { status: "UNCERTAIN", httpCode: response.status, url, signals: [`http_${response.status}`] },
-					};
-				}
-
-				const text = await response.text();
-
-				// Strip HTML tags for plain-text analysis
-				const cleaned = text
-					.replace(/<script[\s\S]*?<\/script>/gi, " ")
-					.replace(/<style[\s\S]*?<\/style>/gi, " ")
-					.replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
-					.replace(/<[^>]+>/g, " ")
-					.replace(/\s+/g, " ")
-					.trim();
-
-				// Collect matched signals
-				const activeMatches: string[] = [];
-				const closedMatches: string[] = [];
-
-				for (const pat of ACTIVE_SIGNALS) {
-					const m = cleaned.match(pat);
-					if (m) activeMatches.push(m[0].trim());
-				}
-				for (const pat of CLOSED_SIGNALS) {
-					const m = cleaned.match(pat);
-					if (m) closedMatches.push(m[0].trim());
-				}
-				for (const pat of HTTP_CLOSED) {
-					const m = cleaned.match(pat);
-					if (m) closedMatches.push(m[0].trim());
-				}
-
-				// Determine status
-				let status: "ACTIVE" | "CLOSED" | "UNCERTAIN" = "UNCERTAIN";
-				if (closedMatches.length > 0) {
-					status = "CLOSED";
-				} else if (activeMatches.length >= 1) {
-					status = "ACTIVE";
-				}
-
-				const summary =
-					status === "ACTIVE"
-						? `✅ ACTIVE — ${url}\nActive signals found: ${activeMatches.slice(0, 3).join(" | ")}`
-						: status === "CLOSED"
-						? `❌ CLOSED — ${url}\nClosed signals found: ${closedMatches.slice(0, 3).join(" | ")}\nDO NOT include this in results.`
-						: `⚠️ UNCERTAIN — ${url}\nNo definitive signals found. Page loaded but couldn't confirm if job is still accepting.`;
-
-				return {
-					content: [{ type: "text", text: summary }],
-					details: {
-						status,
-						url,
-						activeSignals: activeMatches,
-						closedSignals: closedMatches,
-					},
-				};
-			} catch (e: any) {
+			if (result.strategy === "error") {
 				return {
 					content: [{
 						type: "text",
-						text: `⚠️ UNCERTAIN — ${url}\nError verifying: ${e.message}\nCould not confirm status.`,
+						text: `⚠️ UNCERTAIN — ${url}\nError verifying: ${result.error}\nCould not confirm status.`,
 					}],
-					details: { status: "UNCERTAIN", error: e.message, url, signals: [] },
+					details: { status: "UNCERTAIN", error: result.error, url, signals: [] },
 				};
 			}
+
+			// HTTP error codes (404/410 = definitely closed, anything else 4xx/5xx = uncertain)
+			if (result.httpStatus === 404 || result.httpStatus === 410) {
+				return {
+					content: [{
+						type: "text",
+						text: `❌ CLOSED (HTTP ${result.httpStatus}, ${result.strategy}) — ${url}\nThe page returned a ${result.httpStatus} error. Job is definitely no longer available.`,
+					}],
+					details: { status: "CLOSED", httpCode: result.httpStatus, strategy: result.strategy, url, signals: [`http_${result.httpStatus}`] },
+				};
+			}
+			if (result.httpStatus >= 400) {
+				return {
+					content: [{
+						type: "text",
+						text: `⚠️ UNCERTAIN (HTTP ${result.httpStatus}, ${result.strategy}) — ${url}\nUnexpected response code. Page may or may not have the listing.`,
+					}],
+					details: { status: "UNCERTAIN", httpCode: result.httpStatus, strategy: result.strategy, url, signals: [`http_${result.httpStatus}`] },
+				};
+			}
+
+			const cleaned = result.text;
+
+			// Collect matched signals
+			const activeMatches: string[] = [];
+			const closedMatches: string[] = [];
+
+			for (const pat of ACTIVE_SIGNALS) {
+				const m = cleaned.match(pat);
+				if (m) activeMatches.push(m[0].trim());
+			}
+			for (const pat of CLOSED_SIGNALS) {
+				const m = cleaned.match(pat);
+				if (m) closedMatches.push(m[0].trim());
+			}
+			for (const pat of HTTP_CLOSED) {
+				const m = cleaned.match(pat);
+				if (m) closedMatches.push(m[0].trim());
+			}
+
+			// Determine status
+			let status: "ACTIVE" | "CLOSED" | "UNCERTAIN" = "UNCERTAIN";
+			if (closedMatches.length > 0) {
+				status = "CLOSED";
+			} else if (activeMatches.length >= 1) {
+				status = "ACTIVE";
+			}
+
+			const strategyTag = ` [${result.strategy}]`;
+			const summary =
+				status === "ACTIVE"
+					? `✅ ACTIVE — ${url}${strategyTag}\nActive signals found: ${activeMatches.slice(0, 3).join(" | ")}`
+					: status === "CLOSED"
+					? `❌ CLOSED — ${url}${strategyTag}\nClosed signals found: ${closedMatches.slice(0, 3).join(" | ")}\nDO NOT include this in results.`
+					: `⚠️ UNCERTAIN — ${url}${strategyTag}\nNo definitive signals found. Page loaded but couldn't confirm if job is still accepting.`;
+
+			return {
+				content: [{ type: "text", text: summary }],
+				details: {
+					status,
+					strategy: result.strategy,
+					url,
+					activeSignals: activeMatches,
+					closedSignals: closedMatches,
+				},
+			};
 		},
 	});
 
